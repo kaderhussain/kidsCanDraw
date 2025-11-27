@@ -66,7 +66,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <input
             type="range"
             min="1"
-            max="50"
+            max="100"
             value={brushSize}
             onChange={(e) => setBrushSize(Number(e.target.value))}
             className="w-full accent-blue-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"

@@ -25,12 +25,9 @@ export const Canvas: React.FC<CanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Use refs for mutable state that doesn't need to trigger re-renders
-  // This is critical for performance and avoiding state sync issues during rapid drawing
   const isDrawing = useRef(false);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
   
-  // History state needs to be stateful to trigger re-renders if we were showing undo availability,
-  // but for internal logic we can trust the state updates.
   const [history, setHistory] = useState<ImageData[]>([]);
   
   // Track the last processed undo trigger to prevent loops
@@ -48,14 +45,30 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
+      // Always fill with white first to ensure no transparency issues
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       
-      // Save initial blank state
-      const initialData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      setHistory([initialData]);
+      // Try to load saved canvas
+      const savedCanvas = localStorage.getItem('little-picasso-canvas');
+      
+      if (savedCanvas) {
+         const img = new Image();
+         img.src = savedCanvas;
+         img.onload = () => {
+             // Draw saved image
+             ctx.drawImage(img, 0, 0);
+             // Save to history
+             const currentData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+             setHistory([currentData]);
+         };
+      } else {
+        // Save initial blank state
+        const initialData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        setHistory([initialData]);
+      }
       
       onCanvasReady(canvas);
     }
@@ -91,20 +104,15 @@ export const Canvas: React.FC<CanvasProps> = ({
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     
-    // We need at least 2 states: [empty, state1] -> undo -> [empty]
     if (canvas && ctx && history.length > 1) {
-        // Create a copy of history
         const newHistory = [...history];
-        
-        // Remove the current state (the top of the stack)
         newHistory.pop(); 
-        
-        // Get the state before that
         const previousState = newHistory[newHistory.length - 1];
         
         if (previousState) {
             ctx.putImageData(previousState, 0, 0);
             setHistory(newHistory);
+            saveToLocalStorage();
         }
     }
   }, [triggerUndo, history]);
@@ -134,17 +142,29 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
   }, [importedImageSrc]);
 
+  const saveToLocalStorage = () => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+          try {
+            const dataUrl = canvas.toDataURL();
+            localStorage.setItem('little-picasso-canvas', dataUrl);
+          } catch (e) {
+              console.error("Failed to save canvas to localStorage", e);
+          }
+      }
+  };
+
   const saveHistory = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) {
         const currentData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         setHistory(prev => {
-            // Keep max 20 steps to save memory
             const newHist = [...prev, currentData];
             if (newHist.length > 20) newHist.shift();
             return newHist;
         });
+        saveToLocalStorage();
     }
   };
 
@@ -173,7 +193,6 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (e.type === 'mousedown' && (e as React.MouseEvent).button !== 0) return;
     const pos = getCoordinates(e);
     
-    // Handle Bucket Tool immediately on click
     if (tool === ToolType.BUCKET) {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
@@ -186,8 +205,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     isDrawing.current = true;
     lastPos.current = pos;
-
-    // Draw a single dot if it's just a click
     draw(pos, pos);
   };
 
@@ -223,14 +240,30 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
-  const getCursorClass = () => {
-    switch(tool) {
-        case ToolType.PENCIL: return 'cursor-pencil';
-        case ToolType.BRUSH: return 'cursor-pencil';
-        case ToolType.ERASER: return 'cursor-eraser';
-        case ToolType.BUCKET: return 'cursor-bucket';
-        default: return 'cursor-default';
+  // Generate dynamic SVG cursor based on tool and size
+  const getCursorStyle = (): React.CSSProperties => {
+    if (tool === ToolType.BUCKET) {
+        // SVG for paint bucket
+        const bucketSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11L11 19"/><path d="M22 2l-7 7L3 21l8-8 7 7 4-11z"/></svg>`;
+        return { cursor: `url('data:image/svg+xml;utf8,${encodeURIComponent(bucketSvg)}') 0 22, auto` };
     }
+
+    // Minimum visual size for the cursor so it doesn't disappear
+    const size = Math.max(brushSize, 4);
+    const svgSize = size + 8; // Add padding to avoid clipping the stroke
+    const center = svgSize / 2;
+    const radius = size / 2;
+
+    let svg = '';
+    if (tool === ToolType.ERASER) {
+        // White circle with black border for eraser
+        svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgSize}" height="${svgSize}" viewBox="0 0 ${svgSize} ${svgSize}"><circle cx="${center}" cy="${center}" r="${radius}" fill="white" stroke="#333" stroke-width="1"/></svg>`;
+    } else {
+        // Colored circle with white border + thin black outline for visibility on all backgrounds
+        svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgSize}" height="${svgSize}" viewBox="0 0 ${svgSize} ${svgSize}"><circle cx="${center}" cy="${center}" r="${radius}" fill="${color}" stroke="white" stroke-width="2"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="black" stroke-width="1" stroke-opacity="0.3"/></svg>`;
+    }
+
+    return { cursor: `url('data:image/svg+xml;utf8,${encodeURIComponent(svg)}') ${center} ${center}, crosshair` };
   };
 
   return (
@@ -240,7 +273,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     >
       <canvas
         ref={canvasRef}
-        className={`touch-none w-full h-full ${getCursorClass()}`}
+        className="touch-none w-full h-full"
+        style={getCursorStyle()}
         onMouseDown={startDrawing}
         onMouseMove={handleMove}
         onMouseUp={stopDrawing}

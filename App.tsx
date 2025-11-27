@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ToolType, DrawingState } from './types';
 import { Toolbar } from './components/Toolbar';
 import { ColorPicker } from './components/ColorPicker';
@@ -7,10 +7,21 @@ import { convertImageToColoringPage } from './services/gemini';
 import confetti from 'canvas-confetti';
 
 function App() {
-  const [drawingState, setDrawingState] = useState<DrawingState>({
-    color: '#000000',
-    tool: ToolType.PENCIL,
-    brushSize: 5,
+  const [drawingState, setDrawingState] = useState<DrawingState>(() => {
+    // Try to load state from localStorage
+    const saved = localStorage.getItem('little-picasso-state');
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch (e) {
+            console.error("Failed to parse saved state");
+        }
+    }
+    return {
+        color: '#000000',
+        tool: ToolType.PENCIL,
+        brushSize: 5,
+    };
   });
   
   const [triggerClear, setTriggerClear] = useState(0);
@@ -20,6 +31,11 @@ function App() {
   
   // Hidden file input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('little-picasso-state', JSON.stringify(drawingState));
+  }, [drawingState]);
 
   const handleToolChange = (tool: ToolType) => {
     setDrawingState(prev => ({ ...prev, tool }));
