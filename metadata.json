@@ -1,0 +1,7 @@
+{
+  "name": "Little Picasso - Magic Coloring",
+  "description": "A fun drawing app for kids where they can draw, color, and magically turn photos into coloring pages using AI.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
